@@ -10,7 +10,6 @@ TARGETS += examples/clear
 TARGETS += examples/game_of_life
 TARGETS += examples/clock
 TARGETS += examples/binary_clock
-TARGETS += examples/test
 TARGETS += examples/2048
 # TARGETS += examples/fade-test
 # TARGETS += examples/fire
@@ -33,6 +32,19 @@ CFLAGS += \
 	-O2 \
 	-mtune=cortex-a8 \
 	-march=armv7-a \
+
+CXXFLAGS += \
+	-std=c++11 \
+	-W \
+	-Wall \
+	-D_BSD_SOURCE \
+	-Wp,-MMD,$(dir $@).$(notdir $@).d \
+	-Wp,-MT,$@ \
+	-I. \
+	-O2 \
+	-mtune=cortex-a8 \
+	-march=armv7-a \
+
 
 LDFLAGS += \
 
@@ -78,6 +90,9 @@ $(foreach O,$(TARGETS),$(eval $O: $O.o $(PIXELBONE_OBJS) $(APP_LOADER_LIB)))
 
 $(TARGETS):
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+examples/reflektor: examples/reflektor.cpp
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS) $(PIXELBONE_OBJS) $(APP_LOADER_LIB) -lfftw3f -lm -lportaudio
 
 
 .PHONY: clean
