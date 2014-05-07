@@ -41,7 +41,7 @@ CXXFLAGS += \
 	-Wp,-MMD,$(dir $@).$(notdir $@).d \
 	-Wp,-MT,$@ \
 	-I. \
-	-O2 \
+	-O3 \
 	-mtune=cortex-a8 \
 	-march=armv7-a \
 
@@ -92,7 +92,7 @@ $(TARGETS):
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 examples/reflektor: examples/reflektor.cpp
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS) $(PIXELBONE_OBJS) $(APP_LOADER_LIB) -lfftw3f -lm -lportaudio
+	$(CXX) $(CXXFLAGS) -g $(LDFLAGS) -o $@ $^ $(LDLIBS) $(PIXELBONE_OBJS) $(APP_LOADER_LIB) -lfftw3f -lm -lportaudio
 
 
 .PHONY: clean
