@@ -69,10 +69,10 @@ public:
   pixel_t *getPixel(uint32_t n) const;
   uint32_t getPixelColor(uint32_t n) const;
   static uint32_t Color(uint8_t red, uint8_t green, uint8_t blue);
-  static uint32_t HSB(uint16_t hue, uint8_t saturation, uint8_t brightness);
+  static uint32_t HSL(uint32_t hue, uint32_t saturation, uint32_t brightness);
 
 private:
-  static uint8_t h2rgb(uint8_t v1, uint8_t v2, uint8_t hue);
+  static uint32_t h2rgb(uint32_t v1, uint32_t v2, uint32_t hue);
 };
 
 #endif

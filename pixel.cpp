@@ -66,7 +66,7 @@ uint32_t PixelBone_Pixel::Color(uint8_t r, uint8_t g, uint8_t b) {
   return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
 }
 
-uint8_t PixelBone_Pixel::h2rgb(uint8_t v1, uint8_t v2, uint8_t hue) {
+uint32_t PixelBone_Pixel::h2rgb(uint32_t v1, uint32_t v2, uint32_t hue) {
   if (hue < 60)
     return v1 * 60 + (v2 - v1) * hue;
   if (hue < 180)
@@ -77,40 +77,40 @@ uint8_t PixelBone_Pixel::h2rgb(uint8_t v1, uint8_t v2, uint8_t hue) {
   return v1 * 60;
 }
 
-// Convert HSL (Hue, Saturation, Lightness) to RGB (Red, Green, Blue)
-//
-//   hue:        0 to 359 - position on the color wheel, 0=red, 60=orange,
-//                            120=yellow, 180=green, 240=blue, 300=violet
-//
-//   saturation: 0 to 100 - how bright or dull the color, 100=full, 0=gray
-//
-//   lightness:  0 to 100 - how light the color is, 100=white, 50=color, 0=black
-//
-uint32_t PixelBone_Pixel::HSB(uint16_t h, uint8_t s, uint8_t l) {
-  uint8_t r, g, b;
-  uint8_t v1, v2;
+/**
+ * Convert HSL (Hue, Saturation, Lightness) to RGB (Red, Green, Blue)
+ *
+ * hue:        0 to 359 - position on the color wheel, 0=red, 60=orange,
+ *                        120=yellow, 180=green, 240=blue, 300=violet
+ *
+ * saturation: 0 to 100 - how bright or dull the color, 100=full, 0=gray
+ *
+ * lightness:  0 to 100 - how light the color is, 100=white, 50=color, 0=black
+ */
 
-  if (h > 359)
-    h = h % 360;
-  if (s > 100)
-    s = 100;
-  if (l > 100)
-    l = 100;
-
-  if (s == 0) {
-    r = g = b = l * 255 / 100;
+uint32_t PixelBone_Pixel::HSL(uint32_t hue, uint32_t saturation,uint32_t lightness) {
+  uint32_t red, green, blue;
+  uint32_t var1, var2;
+  
+  if (hue > 359) hue = hue % 360;
+  if (saturation > 100) saturation = 100;
+  if (lightness > 100) lightness = 100;
+  
+  // algorithm from: http://www.easyrgb.com/index.php?X=MATH&H=19#text19
+  if (saturation == 0) {
+    red = green = blue = lightness * 255 / 100;
   } else {
-    if (l < 50)
-      v2 = l * (100 + s);
-    else
-      v2 = ((l + s) * 100) - (s * l);
-
-    v1 = l * 200 - v2;
-    r = h2rgb(v1, v2, (h < 240) ? h + 120 : h - 240) * 255 / 600000;
-    g = h2rgb(v1, v2, h) * 255 / 600000;
-    b = h2rgb(v1, v2, (h >= 120) ? h - 120 : h + 240) * 255 / 600000;
+    if (lightness < 50) {
+      var2 = lightness * (100 + saturation);
+    } else {
+      var2 = ((lightness + saturation) * 100) - (saturation * lightness);
+    }
+    var1 = lightness * 200 - var2;
+    red = h2rgb(var1, var2, (hue < 240) ? hue + 120 : hue - 240) * 255 / 600000;
+    green = h2rgb(var1, var2, hue) * 255 / 600000;
+    blue = h2rgb(var1, var2, (hue >= 120) ? hue - 120 : hue + 240) * 255 / 600000;
   }
-  return Color(r, g, b);
+  return (red << 16) | (green << 8) | blue;
 }
 
 // Query color from previously-set pixel (returns packed 32-bit RGB value)
