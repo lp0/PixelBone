@@ -18,8 +18,8 @@
 #include <numeric>
 #include <thread>
 #include <mutex>
+#include <unordered_map>
 #include "../matrix.hpp"
-#define NUM_BINS 6
 
 using namespace std;
 
@@ -31,22 +31,80 @@ using namespace std;
 #define SAMPLE_RATE (44100)
 #define PA_SAMPLE_TYPE paFloat32 | paNonInterleaved;
 #define FRAMES_PER_BUFFER (2048)
-#define PORT 7681
 
 double gInOutScaler = 1.0;
 #define CONVERT_IN_TO_OUT(in)  ((float) ((in) * gInOutScaler))
 
-static fftwf_complex left_out[FRAMES_PER_BUFFER], right_out[FRAMES_PER_BUFFER];
+static fftwf_complex *left_out, *right_out;
 static fftwf_plan lp, rp;
-static float left_mid[FRAMES_PER_BUFFER], right_mid[FRAMES_PER_BUFFER];
-std::mutex plan_mtx;           // mutex for plans
-std::mutex mid_mtx;
-std::mutex out_mtx;
-
-bool plan_set;                 // indicates if plans exist
+static float *left_mid, *right_mid;
+mutex plan_mtx;           // mutex for plans
+mutex mid_mtx;
+mutex out_mtx;
 
 static PixelBone_Matrix *matrix;
-std::mutex matrix_mtx;
+mutex matrix_mtx;
+
+// 1/3 octave middle frequency array
+static const float omf[] = { 15.6, 31.3, 62.5, 125,  250,  500,
+                             1000, 2000, 4000, 8000, 16000 };
+
+// 1/3 octave middle frequency array
+static const float tomf[] = { 15.6,    19.7,   24.8,   31.3,   39.4,    49.6,
+                              62.5,    78.7,   99.2,   125.0,  157.5,   198.4,
+                              250,     315,    396.9,  500.0,  630,     793.7,
+                              1000.0,  1259.9, 1587.4, 2000,   2519.8,  3174.8,
+                              4000.0,  5039.7, 6349.6, 8000.0, 10079.4, 12699.2,
+                              16000.0, 20158.7 };
+
+static float lbtomf[32] = { 0 };
+static float ubtomf[32] = { 0 };
+
+/**
+ * Calculate the gain for a given frequency.
+ * based on http://www.ap.com/kb/show/480
+ * band: bandwidth designator (1 for full octave, 3 for 1/3-octave,… etc.)
+ * freq: frequency
+ * fm: the mid-band frequency of the 1/b-octave filter
+ */
+template <typename T> inline T calculate_gain(T band, T freq, T fm) {
+  return sqrt(1.0 /
+              (1.0 + pow(((freq / fm) - (fm / freq)) * (1.507 * band), 6.0)));
+}
+
+inline float upper_freq_bound(float mid, float band) {
+  return mid * pow(sqrt(2), 1.0 / band);
+}
+
+inline float lower_freq_bound(float mid, float band) {
+  return mid / pow(sqrt(2), 1.0 / band);
+}
+
+void populate_bound_arrays() {
+  for (uint i = 0; i < 32; i++) {
+    lbtomf[i] = lower_freq_bound(tomf[i], 3);
+    ubtomf[i] = upper_freq_bound(tomf[i], 3);
+  }
+}
+
+static unordered_map<int, int> freq_octave_map;
+
+// TODO: make this some sort of tree thing
+// Instead of an O(N) lookup
+inline static int get_octave_bin(float freq) {
+  auto got = freq_octave_map.find(freq);
+  if ( got != freq_octave_map.end() ) {  // we found a freq -> octave map
+    return got->second;                  // so return the octave
+  } else {
+    for (int i = 0; i < 3 * 11; i++) {
+      if (lbtomf[i] <= freq && freq < ubtomf[i]) {
+        freq_octave_map[freq] = i;
+        return i;
+      }
+    }
+  }
+  return -1;
+}
 
 inline static double average(vector<float> &v) {
   double sum = std::accumulate(std::begin(v), std::end(v), 0.0);
@@ -59,47 +117,27 @@ inline static float scale(float oldMin, float oldMax, float newMin, float newMax
 
 
 static void fftwProcess(const void *inputBuffer) {
-  
-  // printf("FFTW CALLBACK GOT CALLED\n");
-  
-  float **input_ptr_ary = (float **)inputBuffer;
-  float *left_in = input_ptr_ary[0];
-  float *right_in = input_ptr_ary[1];
-
-  // if (lp == NULL && rp == NULL ) {
-  //   plan_mtx.lock();
-  //   printf("FFTW Plans are null\n");
-  //   if (!plan_set) {
-  //     plan_set = true;
-
-  //   }
-  //   plan_mtx.unlock();
-  // }
-
-  if (inputBuffer == NULL) return;
+  float *left_in = ((float **)inputBuffer)[0];
 
   mid_mtx.lock();
   /* Hanning window function */
   for (uint i = 0; i < FRAMES_PER_BUFFER; i++) {
     double multiplier = 0.5 * (1 - cos(2 * M_PI * i / (FRAMES_PER_BUFFER - 1)));
     left_mid[i] = multiplier * (left_in[i] + 1.0);
-    right_mid[i] = multiplier * (right_in[i] + 1.0);
   }
-  mid_mtx.unlock();
+
 
   out_mtx.lock();
   fftwf_execute(lp);
-  fftwf_execute(rp);
-  out_mtx.unlock();
+  mid_mtx.unlock();
 
-  // Add data:
+  // // Add data:
   vector<float> tempdata;
   for (uint i = 2; i < (FRAMES_PER_BUFFER / 8) - 1; i++) {
-    //ticks << (i * SAMPLE_RATE / FRAMES_PER_BUFFER);
-    //           right_out[i][0]);
      tempdata.push_back(abs(left_out[i][0]));
   }
-  
+  out_mtx.unlock();  
+
   matrix_mtx.lock();
   matrix->clear();
   uint x =0;
@@ -112,6 +150,32 @@ static void fftwProcess(const void *inputBuffer) {
   matrix->show();
   //matrix->moveToNextBuffer();
   matrix_mtx.unlock();
+
+
+  // 0 is DC freq (O Hz)
+  // n/2 is nyquist freq
+  // float octave_bins[32] = {0};
+  // for (uint i = 2; i < (FRAMES_PER_BUFFER / 16) - 1; i++) {
+  //   float freq   = (i * SAMPLE_RATE / FRAMES_PER_BUFFER);
+  //   int   octave = get_octave_bin(freq);
+  //   float val    = abs(left_out[i][0]);
+  //   if (val > octave_bins[octave]) octave_bins[octave] = val;
+  // }
+  
+  // matrix_mtx.lock();
+  // matrix->clear();
+  // for (uint i = 0; i < 32; i++) { 
+  //   if (octave_bins[i] != 0) {
+  //     int datum = (int) floor(scale(0, 30, 0, 8, octave_bins[i]));
+  //     matrix->drawFastVLine(i, 8, -datum, PixelBone_Pixel::Color(150,150,150));
+  //     //matrix->drawFastVLine(i, 8, -datum, PixelBone_Pixel::HSL(octave_bins[i] * 5,100,50));
+  //   }
+  // } 
+  // matrix->wait();
+  // matrix->show();
+  // matrix->moveToNextBuffer();
+  // matrix_mtx.unlock();
+
 }
 
 /** 
@@ -125,9 +189,9 @@ static int copyCallback(const void *inputBuffer, void *outputBuffer,
                         PaStreamCallbackFlags statusFlags, void *userData) {
   //    Copy stuff
   if( inputBuffer == NULL) return 0;
-  memcpy(((float**)outputBuffer)[0], ((float**)inputBuffer)[0], framesPerBuffer * sizeof(float));
-  memcpy(((float**)outputBuffer)[1], ((float**)inputBuffer)[1], framesPerBuffer * sizeof(float));
-  std::thread (fftwProcess, inputBuffer).detach();
+  //memcpy(((float**)outputBuffer)[0], ((float**)inputBuffer)[0], framesPerBuffer * sizeof(float));
+  //memcpy(((float**)outputBuffer)[1], ((float**)inputBuffer)[1], framesPerBuffer * sizeof(float));
+  thread (fftwProcess, inputBuffer).detach();
   return paContinue;
 }
 
@@ -187,6 +251,15 @@ void setupAudio(PaStream *stream, PaStreamCallback *streamCallback) {
 
 /*******************************************************************/
 int main(void) {
+
+  // Initialize processing arrays with special 16-byte alligned allocators
+  left_mid = (float *)fftwf_malloc(sizeof(float) * FRAMES_PER_BUFFER);
+  right_mid = (float *)fftwf_malloc(sizeof(float) * FRAMES_PER_BUFFER);
+
+  left_out = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * FRAMES_PER_BUFFER);
+  right_out = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * FRAMES_PER_BUFFER);
+
+
   lp = fftwf_plan_dft_r2c_1d(FRAMES_PER_BUFFER, left_mid, left_out, FFTW_MEASURE);
   rp = fftwf_plan_dft_r2c_1d(FRAMES_PER_BUFFER, right_mid, right_out, FFTW_MEASURE);
   matrix = new PixelBone_Matrix(16,8,4,1,
