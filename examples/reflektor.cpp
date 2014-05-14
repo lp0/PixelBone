@@ -7,6 +7,7 @@
 #include <cstring>
 #define _USE_MATH_DEFINES
 #include <cmath>
+#include <csignal>
 #include <math.h>
 #include <complex.h>
 
@@ -32,8 +33,13 @@ using namespace std;
 #define PA_SAMPLE_TYPE paFloat32 | paNonInterleaved;
 #define FRAMES_PER_BUFFER (2048)
 
-double gInOutScaler = 1.0;
-#define CONVERT_IN_TO_OUT(in)  ((float) ((in) * gInOutScaler))
+#define SCALE_MAX 30
+#define SCALE_MIN 2
+
+#define RAINBOW_SCALAR 2
+#define RAINBOW_OFFSET 180
+#define PIXEL_COLOR(value)\
+ PixelBone_Pixel::HSL(value * RAINBOW_SCALAR + RAINBOW_OFFSET, 100, 50)
 
 static fftwf_complex *left_out, *right_out;
 static fftwf_plan lp, rp;
@@ -44,6 +50,9 @@ mutex out_mtx;
 
 static PixelBone_Matrix *matrix;
 mutex matrix_mtx;
+
+static PaStream *stream = nullptr;
+
 
 // 1/3 octave middle frequency array
 static const float omf[] = { 15.6, 31.3, 62.5, 125,  250,  500,
@@ -91,7 +100,7 @@ static unordered_map<int, int> freq_octave_map;
 
 // TODO: make this some sort of tree thing
 // Instead of an O(N) lookup
-inline static int get_octave_bin(float freq) {
+static int get_octave_bin(float freq) {
   auto got = freq_octave_map.find(freq);
   if ( got != freq_octave_map.end() ) {  // we found a freq -> octave map
     return got->second;                  // so return the octave
@@ -103,7 +112,7 @@ inline static int get_octave_bin(float freq) {
       }
     }
   }
-  return -1;
+  return 0;
 }
 
 inline static double average(vector<float> &v) {
@@ -118,63 +127,55 @@ inline static float scale(float oldMin, float oldMax, float newMin, float newMax
 
 static void fftwProcess(const void *inputBuffer) {
   float *left_in = ((float **)inputBuffer)[0];
+  float *right_in = ((float **)inputBuffer)[1];
 
   mid_mtx.lock();
   /* Hanning window function */
   for (uint i = 0; i < FRAMES_PER_BUFFER; i++) {
     double multiplier = 0.5 * (1 - cos(2 * M_PI * i / (FRAMES_PER_BUFFER - 1)));
     left_mid[i] = multiplier * (left_in[i] + 1.0);
+    right_mid[i] = multiplier * (right_in[i] + 1.0);
   }
 
 
   out_mtx.lock();
   fftwf_execute(lp);
+  fftwf_execute(rp);
   mid_mtx.unlock();
 
-  // // Add data:
-  vector<float> tempdata;
-  for (uint i = 2; i < (FRAMES_PER_BUFFER / 8) - 1; i++) {
-     tempdata.push_back(abs(left_out[i][0]));
+  // Add data:
+  //vector<float> tempdata(32);
+  // 0 is DC freq (O Hz)
+  // n/2 is nyquist freq
+  float left_octave_bins[32] = { 0 };
+  float right_octave_bins[32] = { 0 };
+  for (uint i = 2; i < (FRAMES_PER_BUFFER / 2) - 1; i++) {
+    float freq      = (i * SAMPLE_RATE / FRAMES_PER_BUFFER);
+    int   octave    = get_octave_bin(freq);
+    float left_val  = abs(left_out[i][0]);
+    float right_val = abs(right_out[i][0]);
+
+    if (left_val > left_octave_bins[octave]) left_octave_bins[octave] = left_val;
+    if (right_val > right_octave_bins[octave]) right_octave_bins[octave] = right_val;
   }
   out_mtx.unlock();  
 
   matrix_mtx.lock();
   matrix->clear();
-  uint x =0;
-  for (auto it = tempdata.begin(); !(it >= tempdata.end()); it+=4) { 
-    vector<float> temp(it,it+4); 
-     int datum = (int) floor(scale(0, 30, 0, 8, average(temp)));
-     matrix->drawFastVLine(x++, 9, -datum, PixelBone_Pixel::Color(150,150,150));
-  }  
+  uint x = 0;
+  //  for (auto it = tempdata.begin(); !(it >= tempdata.end()); it++) { 
+  for (uint i = 0; i < 32; i++) {
+     int datum = (int) floor(scale(2, 40, 0, 8, left_octave_bins[i]));
+     matrix->drawFastVLine(x++, 8, -datum, PIXEL_COLOR(left_octave_bins[i]));
+  }
+  for (uint i = 31; i != 0; i--) {
+     int datum = (int) floor(scale(2, 60, 0, 8, right_octave_bins[i]));
+     matrix->drawFastVLine(x++, 8, -datum, PIXEL_COLOR(right_octave_bins[i]));
+  }
   matrix->wait();
   matrix->show();
-  //matrix->moveToNextBuffer();
+  matrix->moveToNextBuffer();
   matrix_mtx.unlock();
-
-
-  // 0 is DC freq (O Hz)
-  // n/2 is nyquist freq
-  // float octave_bins[32] = {0};
-  // for (uint i = 2; i < (FRAMES_PER_BUFFER / 16) - 1; i++) {
-  //   float freq   = (i * SAMPLE_RATE / FRAMES_PER_BUFFER);
-  //   int   octave = get_octave_bin(freq);
-  //   float val    = abs(left_out[i][0]);
-  //   if (val > octave_bins[octave]) octave_bins[octave] = val;
-  // }
-  
-  // matrix_mtx.lock();
-  // matrix->clear();
-  // for (uint i = 0; i < 32; i++) { 
-  //   if (octave_bins[i] != 0) {
-  //     int datum = (int) floor(scale(0, 30, 0, 8, octave_bins[i]));
-  //     matrix->drawFastVLine(i, 8, -datum, PixelBone_Pixel::Color(150,150,150));
-  //     //matrix->drawFastVLine(i, 8, -datum, PixelBone_Pixel::HSL(octave_bins[i] * 5,100,50));
-  //   }
-  // } 
-  // matrix->wait();
-  // matrix->show();
-  // matrix->moveToNextBuffer();
-  // matrix_mtx.unlock();
 
 }
 
@@ -191,7 +192,59 @@ static int copyCallback(const void *inputBuffer, void *outputBuffer,
   if( inputBuffer == NULL) return 0;
   //memcpy(((float**)outputBuffer)[0], ((float**)inputBuffer)[0], framesPerBuffer * sizeof(float));
   //memcpy(((float**)outputBuffer)[1], ((float**)inputBuffer)[1], framesPerBuffer * sizeof(float));
-  thread (fftwProcess, inputBuffer).detach();
+  //thread (fftwProcess, inputBuffer).detach();
+
+  float *left_in = ((float **)inputBuffer)[0];
+  float *right_in = ((float **)inputBuffer)[1];
+
+  mid_mtx.lock();
+  /* Hanning window function */
+  for (uint i = 0; i < FRAMES_PER_BUFFER; i++) {
+    double multiplier = 0.5 * (1 - cos(2 * M_PI * i / (FRAMES_PER_BUFFER - 1)));
+    left_mid[i] = multiplier * (left_in[i] + 1.0);
+    right_mid[i] = multiplier * (right_in[i] + 1.0);
+  }
+
+
+  out_mtx.lock();
+  fftwf_execute(lp);
+  fftwf_execute(rp);
+  mid_mtx.unlock();
+
+  // Add data:
+  //vector<float> tempdata(32);
+  // 0 is DC freq (O Hz)
+  // n/2 is nyquist freq
+  float left_octave_bins[32] = { 0 };
+  float right_octave_bins[32] = { 0 };
+  for (uint i = 2; i < (FRAMES_PER_BUFFER / 2) - 1; i++) {
+    float freq      = (i * SAMPLE_RATE / FRAMES_PER_BUFFER);
+    int   octave    = get_octave_bin(freq);
+    float left_val  = abs(left_out[i][0]);
+    float right_val = abs(right_out[i][0]);
+
+    if (left_val > left_octave_bins[octave]) left_octave_bins[octave] = left_val;
+    if (right_val > right_octave_bins[octave]) right_octave_bins[octave] = right_val;
+  }
+  out_mtx.unlock();  
+
+  matrix_mtx.lock();
+  matrix->clear();
+  uint x = 0;
+  //  for (auto it = tempdata.begin(); !(it >= tempdata.end()); it++) { 
+  for (uint i = 0; i < 32; i++) {
+     int datum = (int) floor(scale(SCALE_MIN, SCALE_MAX, 0, 8, left_octave_bins[i]));
+     matrix->drawFastVLine(x++, 8, -datum, PIXEL_COLOR(left_octave_bins[i]));
+  }
+  for (uint i = 31; i != 0; i--) {
+     int datum = (int) floor(scale(SCALE_MIN, SCALE_MAX, 0, 8, right_octave_bins[i]));
+     matrix->drawFastVLine(x++, 8, -datum, PIXEL_COLOR(right_octave_bins[i]));
+  }
+  matrix->wait();
+  matrix->show();
+  matrix->moveToNextBuffer();
+  matrix_mtx.unlock();
+
   return paContinue;
 }
 
@@ -244,14 +297,30 @@ void setupAudio(PaStream *stream, PaStreamCallback *streamCallback) {
   }
 }
 
+void signal_callback_handler(int signum) {
+  printf("TERMINATED!\n");
+
+  // Free the mid arrays
+  fftwf_free(left_mid);
+  fftwf_free(right_mid);
+  fftwf_free(left_out);
+  fftwf_free(right_out);
+
+  //delete matrix;
+
+  Pa_CloseStream(stream);
+  Pa_Terminate();
+
+  printf("Quiting!\n");
+  exit(signum);
+}
 
 
-
-
-
-/*******************************************************************/
 int main(void) {
+  // register signal handler for when ctrl-c is pressed
+  signal(SIGINT, signal_callback_handler);
 
+  populate_bound_arrays();
   // Initialize processing arrays with special 16-byte alligned allocators
   left_mid = (float *)fftwf_malloc(sizeof(float) * FRAMES_PER_BUFFER);
   right_mid = (float *)fftwf_malloc(sizeof(float) * FRAMES_PER_BUFFER);
@@ -265,7 +334,6 @@ int main(void) {
   matrix = new PixelBone_Matrix(16,8,4,1,
                         TILE_TOP   + TILE_LEFT   + TILE_ROWS   + TILE_PROGRESSIVE +
                         MATRIX_TOP + MATRIX_LEFT + MATRIX_ROWS + MATRIX_ZIGZAG);
-  PaStream *stream = nullptr;
   setupAudio(stream, copyCallback);
   
   while (true) {
