@@ -50,7 +50,7 @@ public:
   void drawBitmap(int16_t x, int16_t y, const uint8_t *bitmap, int16_t w,
                   int16_t h, uint32_t color);
   void drawChar(int16_t x, int16_t y, unsigned char c, uint32_t color,
-                uint16_t bg, uint8_t size);
+                uint32_t bg, uint8_t size);
   void setCursor(int16_t x, int16_t y);
   void setTextColor(uint32_t color);
   void setTextColor(uint32_t color, uint32_t bg);

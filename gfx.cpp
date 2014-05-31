@@ -394,7 +394,7 @@ void PixelBone_GFX::write(uint8_t c) {
 
 // Draw a character
 void PixelBone_GFX::drawChar(int16_t x, int16_t y, unsigned char c,
-                             uint32_t color, uint16_t bg, uint8_t size) {
+                             uint32_t color, uint32_t bg, uint8_t size) {
 
   if ((x >= _width) ||            // Clip right
       (y >= _height) ||           // Clip bottom
