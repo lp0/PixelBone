@@ -1,63 +1,35 @@
 #include "pixel.hpp"
-#include <iostream>
 #include <cstring>
 
-/* GPIO pins used */
-static const uint8_t gpios0 = 2;
-
-PixelBone_Pixel::PixelBone_Pixel(uint16_t pixel_count)
-    : pru0(pru_init(0)), num_pixels(pixel_count),
-      buffer_size(pixel_count * sizeof(pixel_t)) {
-  if (2 * buffer_size > pru0->ddr_size)
-    die("Pixel data needs at least 2 * %zu, only %zu in DDR\n", buffer_size,
-        pru0->ddr_size);
-
-  ws281x = (ws281x_command_t *)pru0->data_ram;
-  *(ws281x) = ws281x_command_t((unsigned)pixel_count);
-
-  // Configure all of our output pins.
-  pru_gpio(0, gpios0, 1, 0);
-
-  // Initiate the PRU0 program
-  pru_exec(pru0, "./ws281x.bin");
-
-  // Watch for a done response that indicates a proper startup
-  // TODO: timeout if it fails
-  std::cout << "waiting for response from pru0... ";
-  while (!ws281x->response)
-    ;
-  std::cout << "OK" << std::endl;
-};
-
-PixelBone_Pixel::~PixelBone_Pixel() {
-  ws281x->command = 0xFF;
-  pru_close(pru0);
-}
-
 void PixelBone_Pixel::show(void) {
-  ws281x->pixels_dma = pru0->ddr_addr + buffer_size * current_buffer_num;
+  std::vector<uint8_t> output_buffer;
+  auto bytes_processed = 0;
+  for (auto channel_pixel : channel_pixels) {
+    auto num_bytes = channel_pixel.second * sizeof(pixel_t);
 
-  // Wait for any current command to have been acknowledged
-  while (ws281x->command)
-    ;
+    // resize the output buffer to match the number of elements
+    output_buffer.resize(sizeof(OPCClient::Header) + num_bytes);
 
-  // Send the start command
-  ws281x->command = 1;
+    // Setup the OPC message
+    OPCClient::Header::view(output_buffer)
+        .init(channel_pixel.first, OPCClient::SET_PIXEL_COLORS, num_bytes);
+
+    // Offset starting location
+    auto framebuffer_begin = std::begin(framebuffer) + bytes_processed;
+
+    // Move over pixel data from framebuffer to output buffer
+    std::move(framebuffer_begin, framebuffer_begin + num_bytes,
+              std::begin(output_buffer) + sizeof(OPCClient::Header));
+
+    opc.write(output_buffer);
+    bytes_processed += num_bytes;
+  }
 }
-
-void PixelBone_Pixel::moveToNextBuffer() {
-  ++current_buffer_num %= 2;
-};
 
 uint32_t PixelBone_Pixel::numPixels() const { return num_pixels; }
 
-/** Retrieve one of the two frame buffers. */
-pixel_t *PixelBone_Pixel::getCurrentBuffer() const {
-  return (pixel_t *)((uint8_t *)pru0->ddr + buffer_size * current_buffer_num);
-}
-
-pixel_t *PixelBone_Pixel::getPixel(uint32_t n) const {
-  return &getCurrentBuffer()[n];
+pixel_t *const PixelBone_Pixel::getPixel(uint16_t n) const {
+  return (pixel_t *)&framebuffer[n * sizeof(pixel_t)];
 }
 
 // Convert separate R,G,B into packed 32-bit RGB color.
@@ -67,12 +39,9 @@ uint32_t PixelBone_Pixel::Color(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 uint32_t PixelBone_Pixel::h2rgb(uint32_t v1, uint32_t v2, uint32_t hue) {
-  if (hue < 60)
-    return v1 * 60 + (v2 - v1) * hue;
-  if (hue < 180)
-    return v2 * 60;
-  if (hue < 240)
-    return v1 * 60 + (v2 - v1) * (240 - hue);
+  if (hue < 60) return v1 * 60 + (v2 - v1) * hue;
+  if (hue < 180) return v2 * 60;
+  if (hue < 240) return v1 * 60 + (v2 - v1) * (240 - hue);
 
   return v1 * 60;
 }
@@ -88,14 +57,15 @@ uint32_t PixelBone_Pixel::h2rgb(uint32_t v1, uint32_t v2, uint32_t hue) {
  * lightness:  0 to 100 - how light the color is, 100=white, 50=color, 0=black
  */
 
-uint32_t PixelBone_Pixel::HSL(uint32_t hue, uint32_t saturation,uint32_t lightness) {
+uint32_t PixelBone_Pixel::HSL(uint32_t hue, uint32_t saturation,
+                              uint32_t lightness) {
   uint32_t red, green, blue;
   uint32_t var1, var2;
-  
+
   if (hue > 359) hue = hue % 360;
   if (saturation > 100) saturation = 100;
   if (lightness > 100) lightness = 100;
-  
+
   // algorithm from: http://www.easyrgb.com/index.php?X=MATH&H=19#text19
   if (saturation == 0) {
     red = green = blue = lightness * 255 / 100;
@@ -108,22 +78,23 @@ uint32_t PixelBone_Pixel::HSL(uint32_t hue, uint32_t saturation,uint32_t lightne
     var1 = lightness * 200 - var2;
     red = h2rgb(var1, var2, (hue < 240) ? hue + 120 : hue - 240) * 255 / 600000;
     green = h2rgb(var1, var2, hue) * 255 / 600000;
-    blue = h2rgb(var1, var2, (hue >= 120) ? hue - 120 : hue + 240) * 255 / 600000;
+    blue =
+        h2rgb(var1, var2, (hue >= 120) ? hue - 120 : hue + 240) * 255 / 600000;
   }
   return (red << 16) | (green << 8) | blue;
 }
 
 // Query color from previously-set pixel (returns packed 32-bit RGB value)
-uint32_t PixelBone_Pixel::getPixelColor(uint32_t n) const {
+uint32_t PixelBone_Pixel::getPixelColor(uint16_t n) const {
   if (n < num_pixels) {
     pixel_t *const p = getPixel(n);
     return Color(p->r, p->g, p->b);
   }
-  return 0; // Pixel # is out of bounds
+  return 0;  // Pixel # is out of bounds
 }
 
 // Set pixel color from separate R,G,B components:
-void PixelBone_Pixel::setPixelColor(uint32_t n, uint8_t r, uint8_t g,
+void PixelBone_Pixel::setPixelColor(uint16_t n, uint8_t r, uint8_t g,
                                     uint8_t b) {
   if (n < num_pixels) {
     // if(brightness) { // See notes in setBrightness()
@@ -139,7 +110,7 @@ void PixelBone_Pixel::setPixelColor(uint32_t n, uint8_t r, uint8_t g,
 }
 
 // Set pixel color from 'packed' 32-bit RGB color:
-void PixelBone_Pixel::setPixelColor(uint32_t n, uint32_t c) {
+void PixelBone_Pixel::setPixelColor(uint16_t n, uint32_t c) {
   if (n < num_pixels) {
     uint8_t r = (uint8_t)(c >> 16);
     uint8_t g = (uint8_t)(c >> 8);
@@ -148,23 +119,13 @@ void PixelBone_Pixel::setPixelColor(uint32_t n, uint32_t c) {
   }
 }
 
-void PixelBone_Pixel::setPixel(uint32_t n, pixel_t p) {
+void PixelBone_Pixel::setPixel(uint16_t n, pixel_t p) {
   memcpy(getPixel(n), &p, sizeof(pixel_t));
   // setPixelColor(n, p.r, p.g, p.b);
 }
 
-uint32_t PixelBone_Pixel::wait() {
-  while (1) {
-    uint32_t response = ws281x->response;
-    if (response) {
-      ws281x->response = 0;
-      return response;
-    }
-  }
-}
-
 void PixelBone_Pixel::clear() {
   for (uint16_t i = 0; i < num_pixels; i++) {
-    this->setPixelColor(i, 0, 0, 0);
+    setPixelColor(i, 0, 0, 0);
   }
 }

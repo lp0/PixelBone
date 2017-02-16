@@ -9,10 +9,9 @@ from distutils.core import setup, Extension
 
 matrix_module = Extension('_matrix',
                            sources=['matrix_wrap.cxx', 'matrix.cpp',
-                                    'gfx.cpp', 'pixel.cpp', 'pru.c', 'util.c',
+                                    'gfx.cpp', 'pixel.cpp', 'util.c',
                                     'glcdfont.c'],
-			   library_dirs=['/usr/local/lib'],
-			   libraries=['prussdrv'],
+			   library_dirs=['/usr/local/lib']
                            )
 
 setup (name = 'matrix',

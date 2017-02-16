@@ -4,17 +4,16 @@
 
 #include <string>
 
-#define swap(a, b)                                                             \
-  {                                                                            \
-    int16_t t = a;                                                             \
-    a = b;                                                                     \
-    b = t;                                                                     \
+#define pbswap(a, b) \
+  {                  \
+    int16_t t = a;   \
+    a = b;           \
+    b = t;           \
   }
 
 class PixelBone_GFX {
-
-public:
-  PixelBone_GFX(int16_t w, int16_t h); // Constructor
+ public:
+  PixelBone_GFX(int16_t w, int16_t h);  // Constructor
 
   // This MUST be defined by the subclass:
   virtual void drawPixel(int16_t x, int16_t y, uint32_t color) = 0;
@@ -25,9 +24,9 @@ public:
                         uint32_t color);
   virtual void drawFastVLine(int16_t x, int16_t y, int16_t h, uint32_t color);
   virtual void drawFastHLine(int16_t x, int16_t y, int16_t w, uint32_t color);
-  virtual void drawRect(int16_t x, int16_t y, int16_t w, int16_t h, 
+  virtual void drawRect(int16_t x, int16_t y, int16_t w, int16_t h,
                         uint32_t color);
-  virtual void fillRect(int16_t x, int16_t y, int16_t w, int16_t h, 
+  virtual void fillRect(int16_t x, int16_t y, int16_t w, int16_t h,
                         uint32_t color);
   virtual void fillScreen(uint32_t color);
   virtual void invertDisplay(bool i);
@@ -68,14 +67,14 @@ public:
   int16_t width(void);
   uint8_t getRotation(void);
 
-protected:
-  const int16_t WIDTH, HEIGHT; // This is the 'raw' display w/h - never changes
-  int16_t _width, _height;     // Display w/h as modified by current rotation
+ protected:
+  const int16_t WIDTH, HEIGHT;  // This is the 'raw' display w/h - never changes
+  int16_t _width, _height;      // Display w/h as modified by current rotation
   int16_t cursor_x, cursor_y;
   uint32_t textcolor, textbgcolor;
   uint8_t textsize;
   uint8_t rotation;
-  bool wrap; // If set, 'wrap' text at right edge of display
+  bool wrap;  // If set, 'wrap' text at right edge of display
 };
 
-#endif // _GFX_HPP_
+#endif  // _GFX_HPP_

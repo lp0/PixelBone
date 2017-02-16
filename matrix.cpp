@@ -33,70 +33,75 @@
 #include "gamma.h"
 #define pgm_read_byte(addr) (*(const unsigned char *)(addr))
 
-// Constructor for single matrix:
-PixelBone_Matrix::PixelBone_Matrix(int w, int h, uint8_t matrixType)
-    : PixelBone_GFX(w, h), PixelBone_Pixel(w * h), type(matrixType),
-      matrixWidth(w), matrixHeight(h), tilesX(0), tilesY(0), remapFn(NULL) {}
+PixelBone_Matrix::PixelBone_Matrix(uint8_t channel, int w, int h,
+                                   uint8_t matrixType)
+    : PixelBone_GFX(w, h),
+      PixelBone_Pixel(channel, w * h),
+      type(matrixType),
+      matrixWidth(w),
+      matrixHeight(h),
+      tilesX(0),
+      tilesY(0),
+      remapFn(NULL) {}
 
-// Constructor for tiled matrices:
-PixelBone_Matrix::PixelBone_Matrix(uint8_t mW, uint8_t mH, uint8_t tX,
-                                   uint8_t tY, uint8_t matrixType)
-    : PixelBone_GFX(mW * tX, mH * tY), PixelBone_Pixel(mW * mH * tX * tY),
-      type(matrixType), matrixWidth(mW), matrixHeight(mH), tilesX(tX),
-      tilesY(tY), remapFn(NULL) {}
-
+PixelBone_Matrix::PixelBone_Matrix(uint8_t channel, uint8_t mW, uint8_t mH,
+                                   uint8_t tX, uint8_t tY, uint8_t matrixType)
+    : PixelBone_GFX(mW * tX, mH * tY),
+      PixelBone_Pixel(channel, mW * mH * tX * tY),
+      type(matrixType),
+      matrixWidth(mW),
+      matrixHeight(mH),
+      tilesX(tX),
+      tilesY(tY),
+      remapFn(NULL) {}
 
 int PixelBone_Matrix::getOffset(int16_t x, int16_t y) {
-
-  if ((x < 0) || (y < 0) || (x >= _width) || (y >= _height))
-    return -1;
+  if ((x < 0) || (y < 0) || (x >= _width) || (y >= _height)) return -1;
 
   int16_t t;
   switch (rotation) {
-  case 1:
-    t = x;
-    x = WIDTH - 1 - y;
-    y = t;
-    break;
-  case 2:
-    x = WIDTH - 1 - x;
-    y = HEIGHT - 1 - y;
-    break;
-  case 3:
-    t = x;
-    x = y;
-    y = HEIGHT - 1 - t;
-    break;
+    case 1:
+      t = x;
+      x = WIDTH - 1 - y;
+      y = t;
+      break;
+    case 2:
+      x = WIDTH - 1 - x;
+      y = HEIGHT - 1 - y;
+      break;
+    case 3:
+      t = x;
+      x = y;
+      y = HEIGHT - 1 - t;
+      break;
   }
 
   int tileOffset = 0, pixelOffset;
 
-  if (remapFn) { // Custom X/Y remapping function
+  if (remapFn) {  // Custom X/Y remapping function
     pixelOffset = (*remapFn)(x, y);
-  } else { // Standard single matrix or tiled matrices
+  } else {  // Standard single matrix or tiled matrices
 
     uint8_t corner = type & MATRIX_CORNER;
     uint16_t minor, major, majorScale;
 
-    if (tilesX) { // Tiled display, multiple matrices
+    if (tilesX) {  // Tiled display, multiple matrices
       uint16_t tile;
 
-      minor = x / matrixWidth;           // Tile # X/Y; presume row major to
-      major = y / matrixHeight,          // start (will swap later if needed)
-          x = x - (minor * matrixWidth); // Pixel X/Y within tile
-      y = y - (major * matrixHeight);    // (-* is less math than modulo)
+      minor = x / matrixWidth;            // Tile # X/Y; presume row major to
+      major = y / matrixHeight,           // start (will pbswap later if needed)
+          x = x - (minor * matrixWidth);  // Pixel X/Y within tile
+      y = y - (major * matrixHeight);     // (-* is less math than modulo)
 
       // Determine corner of entry, flip axes if needed
-      if (type & TILE_RIGHT)
-        minor = tilesX - 1 - minor;
-      if (type & TILE_BOTTOM)
-        major = tilesY - 1 - major;
+      if (type & TILE_RIGHT) minor = tilesX - 1 - minor;
+      if (type & TILE_BOTTOM) major = tilesY - 1 - major;
 
       // Determine actual major axis of tiling
       if ((type & TILE_AXIS) == TILE_ROWS) {
         majorScale = tilesX;
       } else {
-        swap(major, minor);
+        pbswap(major, minor);
         majorScale = tilesY;
       }
 
@@ -119,23 +124,21 @@ int PixelBone_Matrix::getOffset(int16_t x, int16_t y) {
       // Index of first pixel in tile
       tileOffset = tile * matrixWidth * matrixHeight;
 
-    } // else no tiling (handle as single tile)
+    }  // else no tiling (handle as single tile)
 
     // Find pixel number within tile
-    minor = x; // Presume row major to start (will swap later if needed)
+    minor = x;  // Presume row major to start (will pbswap later if needed)
     major = y;
 
     // Determine corner of entry, flip axes if needed
-    if (corner & MATRIX_RIGHT)
-      minor = matrixWidth - 1 - minor;
-    if (corner & MATRIX_BOTTOM)
-      major = matrixHeight - 1 - major;
+    if (corner & MATRIX_RIGHT) minor = matrixWidth - 1 - minor;
+    if (corner & MATRIX_BOTTOM) major = matrixHeight - 1 - major;
 
     // Determine actual major axis of matrix
     if ((type & MATRIX_AXIS) == MATRIX_ROWS) {
       majorScale = matrixWidth;
     } else {
-      swap(major, minor);
+      pbswap(major, minor);
       majorScale = matrixHeight;
     }
 
@@ -156,16 +159,17 @@ int PixelBone_Matrix::getOffset(int16_t x, int16_t y) {
 }
 
 void PixelBone_Matrix::drawPixel(int16_t x, int16_t y, uint32_t color) {
-  setPixelColor(getOffset(x,y), color);
+  setPixelColor(getOffset(x, y), color);
 }
 
 uint16_t PixelBone_Matrix::getPixelColor(int16_t x, int16_t y) {
-  // uint32_t color = expandColor(PixelBone_Pixel::getPixelColor(getOffset(x,y)));
+  // uint32_t color =
+  // expandColor(PixelBone_Pixel::getPixelColor(getOffset(x,y)));
   // uint8_t r = (uint8_t) (color & 0xFF);         // first 8 bits
   // uint8_t g = (uint8_t) ((color >> 8) & 0xFF);  // second 8 bits
-  // uint8_t b = (uint8_t) ((color >> 16) & 0xFF); // third 8 bits 
+  // uint8_t b = (uint8_t) ((color >> 16) & 0xFF); // third 8 bits
 
-  pixel_t *const p = PixelBone_Pixel::getPixel(getOffset(x,y));
+  pixel_t *const p = PixelBone_Pixel::getPixel(getOffset(x, y));
   // printf("Red color: 0x%x\n", p->r);
   // printf("Green color: 0x%x\n", p->g);
   // printf("Blue color: 0x%x\n", p->b);
@@ -176,8 +180,7 @@ uint16_t PixelBone_Matrix::getPixelColor(int16_t x, int16_t y) {
 void PixelBone_Matrix::fillScreen(uint32_t color) {
   uint32_t n = numPixels();
 
-  for (uint32_t i = 0; i < n; i++)
-    setPixelColor(i, color);
+  for (uint32_t i = 0; i < n; i++) setPixelColor(i, color);
 }
 
 void PixelBone_Matrix::setRemapFunction(uint16_t (*fn)(uint16_t, uint16_t)) {

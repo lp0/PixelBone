@@ -130,7 +130,6 @@ void PixelBone_GFX::fillCircle(int16_t x0, int16_t y0, int16_t r,
 void PixelBone_GFX::fillCircleHelper(int16_t x0, int16_t y0, int16_t r,
                                      uint8_t cornername, int16_t delta,
                                      uint32_t color) {
-
   int16_t f = 1 - r;
   int16_t ddF_x = 1;
   int16_t ddF_y = -2 * r;
@@ -163,13 +162,13 @@ void PixelBone_GFX::drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
                              uint32_t color) {
   int16_t steep = std::abs(y1 - y0) > std::abs(x1 - x0);
   if (steep) {
-    swap(x0, y0);
-    swap(x1, y1);
+    pbswap(x0, y0);
+    pbswap(x1, y1);
   }
 
   if (x0 > x1) {
-    swap(x0, x1);
-    swap(y0, y1);
+    pbswap(x0, x1);
+    pbswap(y0, y1);
   }
 
   int16_t dx, dy;
@@ -236,10 +235,10 @@ void PixelBone_GFX::fillScreen(uint32_t color) {
 void PixelBone_GFX::drawRoundRect(int16_t x, int16_t y, int16_t w, int16_t h,
                                   int16_t r, uint32_t color) {
   // smarter version
-  drawFastHLine(x + r, y, w - 2 * r, color);         // Top
-  drawFastHLine(x + r, y + h - 1, w - 2 * r, color); // Bottom
-  drawFastVLine(x, y + r, h - 2 * r, color);         // Left
-  drawFastVLine(x + w - 1, y + r, h - 2 * r, color); // Right
+  drawFastHLine(x + r, y, w - 2 * r, color);          // Top
+  drawFastHLine(x + r, y + h - 1, w - 2 * r, color);  // Bottom
+  drawFastVLine(x, y + r, h - 2 * r, color);          // Left
+  drawFastVLine(x + w - 1, y + r, h - 2 * r, color);  // Right
   // draw four corners
   drawCircleHelper(x + r, y + r, r, 1, color);
   drawCircleHelper(x + w - r - 1, y + r, r, 2, color);
@@ -269,24 +268,23 @@ void PixelBone_GFX::drawTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
 // Fill a triangle
 void PixelBone_GFX::fillTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
                                  int16_t x2, int16_t y2, uint32_t color) {
-
   int16_t a, b, y, last;
 
   // Sort coordinates by Y order (y2 >= y1 >= y0)
   if (y0 > y1) {
-    swap(y0, y1);
-    swap(x0, x1);
+    pbswap(y0, y1);
+    pbswap(x0, x1);
   }
   if (y1 > y2) {
-    swap(y2, y1);
-    swap(x2, x1);
+    pbswap(y2, y1);
+    pbswap(x2, x1);
   }
   if (y0 > y1) {
-    swap(y0, y1);
-    swap(x0, x1);
+    pbswap(y0, y1);
+    pbswap(x0, x1);
   }
 
-  if (y0 == y2) { // Handle awkward all-on-same-line case as its own thing
+  if (y0 == y2) {  // Handle awkward all-on-same-line case as its own thing
     a = b = x0;
     if (x1 < a)
       a = x1;
@@ -310,9 +308,9 @@ void PixelBone_GFX::fillTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
   // in the second loop...which also avoids a /0 error here if y0=y1
   // (flat-topped triangle).
   if (y1 == y2)
-    last = y1; // Include y1 scanline
+    last = y1;  // Include y1 scanline
   else
-    last = y1 - 1; // Skip it
+    last = y1 - 1;  // Skip it
 
   for (y = y0; y <= last; y++) {
     a = x0 + sa / dy01;
@@ -323,8 +321,7 @@ void PixelBone_GFX::fillTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
     a = x0 + (x1 - x0) * (y - y0) / (y1 - y0);
     b = x0 + (x2 - x0) * (y - y0) / (y2 - y0);
     */
-    if (a > b)
-      swap(a, b);
+    if (a > b) pbswap(a, b);
     drawFastHLine(a, y, b - a + 1, color);
   }
 
@@ -341,15 +338,13 @@ void PixelBone_GFX::fillTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
     a = x1 + (x2 - x1) * (y - y1) / (y2 - y1);
     b = x0 + (x2 - x0) * (y - y0) / (y2 - y0);
     */
-    if (a > b)
-      swap(a, b);
+    if (a > b) pbswap(a, b);
     drawFastHLine(a, y, b - a + 1, color);
   }
 }
 
 void PixelBone_GFX::drawBitmap(int16_t x, int16_t y, const uint8_t *bitmap,
                                int16_t w, int16_t h, uint32_t color) {
-
   int16_t i, j, byteWidth = (w + 7) / 8;
 
   for (j = 0; j < h; j++) {
@@ -366,14 +361,12 @@ void PixelBone_GFX::print(const std::string &s) { print(s.c_str()); }
 void PixelBone_GFX::print(const char str[]) { write(str); }
 
 void PixelBone_GFX::write(const char *str) {
-  while (*str)
-    write(*str++);
+  while (*str) write(*str++);
 }
 
 /* default implementation: may be overridden */
 void PixelBone_GFX::write(const uint8_t *buffer, size_t size) {
-  while (size--)
-    write(*buffer++);
+  while (size--) write(*buffer++);
 }
 
 void PixelBone_GFX::write(uint8_t c) {
@@ -395,11 +388,10 @@ void PixelBone_GFX::write(uint8_t c) {
 // Draw a character
 void PixelBone_GFX::drawChar(int16_t x, int16_t y, unsigned char c,
                              uint32_t color, uint32_t bg, uint8_t size) {
-
-  if ((x >= _width) ||            // Clip right
-      (y >= _height) ||           // Clip bottom
-      ((x + 6 * size - 1) < 0) || // Clip left
-      ((y + 8 * size - 1) < 0))   // Clip top
+  if ((x >= _width) ||             // Clip right
+      (y >= _height) ||            // Clip bottom
+      ((x + 6 * size - 1) < 0) ||  // Clip left
+      ((y + 8 * size - 1) < 0))    // Clip top
     return;
 
   for (int8_t i = 0; i < 6; i++) {
@@ -410,15 +402,15 @@ void PixelBone_GFX::drawChar(int16_t x, int16_t y, unsigned char c,
       line = pgm_read_byte(font + (c * 5) + i);
     for (int8_t j = 0; j < 8; j++) {
       if (line & 0x1) {
-        if (size == 1) // default size
+        if (size == 1)  // default size
           drawPixel(x + i, y + j, color);
-        else { // big size
+        else {  // big size
           fillRect(x + (i * size), y + (j * size), size, size, color);
         }
       } else if (bg != color) {
-        if (size == 1) // default size
+        if (size == 1)  // default size
           drawPixel(x + i, y + j, bg);
-        else { // big size
+        else {  // big size
           fillRect(x + i * size, y + j * size, size, size, bg);
         }
       }
@@ -452,16 +444,16 @@ uint8_t PixelBone_GFX::getRotation(void) { return rotation; }
 void PixelBone_GFX::setRotation(uint8_t x) {
   rotation = (x & 3);
   switch (rotation) {
-  case 0:
-  case 2:
-    _width = WIDTH;
-    _height = HEIGHT;
-    break;
-  case 1:
-  case 3:
-    _width = HEIGHT;
-    _height = WIDTH;
-    break;
+    case 0:
+    case 2:
+      _width = WIDTH;
+      _height = HEIGHT;
+      break;
+    case 1:
+    case 3:
+      _width = HEIGHT;
+      _height = WIDTH;
+      break;
   }
 }
 
