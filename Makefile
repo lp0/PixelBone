@@ -16,6 +16,7 @@ TARGETS += examples/2048
 # TARGETS += examples/fire
 # TARGETS += network/udp-rx
 # TARGETS += network/opc-rx
+TARGETS += network/simple-udp
 
 PIXELBONE_OBJS = pixel.o gfx.o matrix.o pru.o util.o
 PIXELBONE_LIB := libpixelbone.a
