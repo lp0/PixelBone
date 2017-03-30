@@ -10,7 +10,7 @@ TARGETS += examples/clear
 TARGETS += examples/game_of_life
 TARGETS += examples/clock
 TARGETS += examples/binary_clock
-TARGETS += examples/test
+# TARGETS += examples/test
 TARGETS += examples/2048
 # TARGETS += examples/fade-test
 # TARGETS += examples/fire
@@ -46,10 +46,11 @@ export CROSS_COMPILE:=
 # The TI "app_loader" is the userspace library for talking to
 # the PRU and mapping memory between it and the ARM.
 #
-APP_LOADER_DIR ?= ./am335x/app_loader
-APP_LOADER_LIB := $(APP_LOADER_DIR)/lib/libprussdrv.a
-CFLAGS += -I$(APP_LOADER_DIR)/include
-LDLIBS += $(APP_LOADER_LIB)
+#APP_LOADER_DIR ?= ./am335x/app_loader
+#APP_LOADER_LIB := $(APP_LOADER_DIR)/lib/libprussdrv.a
+#CFLAGS += -I$(APP_LOADER_DIR)/include
+#LDLIBS += $(APP_LOADER_LIB)
+LDLIBS += -lprussdrv
 
 #####
 #
